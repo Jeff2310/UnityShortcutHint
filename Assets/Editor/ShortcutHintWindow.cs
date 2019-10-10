@@ -7,22 +7,22 @@ using System.Linq;
 
 public class ShortcutHintWindow : EditorWindow
 {
-    struct ShortcutPair
-    {
-        public KeyCombination       Combination;
-        public string               Name;
-        public string               Prefix;
-    }
+   
     private List<string>            ShortcutIDs;
     private List<string>            IncludePrefixes;
     private List<string>            ExcludePrefixes;
-    private List<ShortcutPair>      ShortcutPairs;
+    private List<CommandPair>       CommandPairs;
+    private List<CommandPair>       CommonCommandPairs;
+
     private Vector2 scrollPos;
 
     const string KEY_PREFIX_STR = "ShortcutHintWindow/Prefix string";
+    const string KEY_COMMON_SHORTCUTS = "ShortcutHintWindow/Main Menu shortcuts";
     const string PREFIX_STR_DEFAULT = 
         "!Main Menu/Assets/Create;"+
-        "Animation;Curve Editor;" +
+        "Main Menu" +
+        "Animation;" +
+        "Curve Editor;"  +
         "ParticleSystem;" +
         "Scene View;" +
         "Scene Visibility;" +
@@ -33,50 +33,49 @@ public class ShortcutHintWindow : EditorWindow
         "Version Control;" +
         "Window";
     private static bool prefsLoaded = false;
-    private static string prefixString = PREFIX_STR_DEFAULT;
+    private static bool showCommonShortcuts;
+    private static string prefixString;
+
+    public void OnEnable()
+    {
+        if (!prefsLoaded)
+        {
+            prefixString = EditorPrefs.GetString(KEY_PREFIX_STR, PREFIX_STR_DEFAULT);
+            showCommonShortcuts = EditorPrefs.GetBool(KEY_COMMON_SHORTCUTS, false);
+            prefsLoaded = true;
+        }
+        LoadShortcut();
+    }
 
     [MenuItem("Tools/Shortcut Hint")]
     public static void OpenWindow()
     {
-        var window = GetWindow(typeof(ShortcutHintWindow), false, "Shortcut Hint", true);
-        (window as ShortcutHintWindow).LoadShortcut();
+        GetWindow(typeof(ShortcutHintWindow), false, "Shortcut Hint", true);
     }
 
     [PreferenceItem("ShortcutHint")]
     public static void PerferencesGUI()
     {
-        if (!prefsLoaded)
-        {
-            prefixString = EditorPrefs.GetString(KEY_PREFIX_STR, PREFIX_STR_DEFAULT);
-            prefsLoaded = true;
-        }
-
         EditorGUILayout.LabelField("Version 0.01");
+        
         prefixString = EditorGUILayout.TextField("Prefix String", prefixString);
-
         if (GUI.changed)
         {
             EditorPrefs.SetString(KEY_PREFIX_STR, prefixString);
+        }
+        showCommonShortcuts = EditorGUILayout.Toggle("Always show common shortcuts", showCommonShortcuts);
+        if (GUI.changed)
+        {
+            EditorPrefs.SetBool(KEY_COMMON_SHORTCUTS, showCommonShortcuts);
         }
     }
 
     public void LoadShortcut()
     {
-        // check prefix preferences
-        string s_prefix;
-        if(!EditorPrefs.HasKey(KEY_PREFIX_STR))
-        {
-            EditorPrefs.SetString(KEY_PREFIX_STR, PREFIX_STR_DEFAULT);
-            s_prefix = PREFIX_STR_DEFAULT;
-        }
-        else
-        {
-            s_prefix = EditorPrefs.GetString(KEY_PREFIX_STR);
-        }
         // prefix parser
         IncludePrefixes = new List<string>();
         ExcludePrefixes = new List<string>();
-        var prefixes = s_prefix.Split(';');
+        var prefixes = prefixString.Split(';');
         foreach (var prefix in prefixes)
         {
             if (prefix[0] == '!')
@@ -86,11 +85,13 @@ public class ShortcutHintWindow : EditorWindow
         }
 
         var scm = ShortcutManager.instance;
-        ShortcutIDs = new List<string>(scm.GetAvailableShortcutIds());
-        ShortcutPairs = new List<ShortcutPair>();
-        var builder = new StringBuilder();
-        foreach (var s in ShortcutIDs)
+        var ids = scm.GetAvailableShortcutIds();
+        ShortcutIDs = new List<string>(ids);
+        CommandPairs = new List<CommandPair>();
+        CommonCommandPairs = new List<CommandPair>();
+        for(int i=0; i<ShortcutIDs.Count; i++)
         {
+            var s = ShortcutIDs[i];
             // filter prefix
             bool flag = false;
             string prefix = "";
@@ -117,13 +118,15 @@ public class ShortcutHintWindow : EditorWindow
             var cs = scm.GetShortcutBinding(s).keyCombinationSequence;
             if (cs.Count() == 0) continue;
             var c = cs.First();
-            //if (c.modifiers != ShortcutModifiers.None)
-            if (true)
-            {
-                var trimmedName = s.Split('/').Last();
-                ShortcutPairs.Add(new ShortcutPair { Combination = c, Name = trimmedName, Prefix = prefix});
-            }
+            var trimmedName = s.Replace(prefix+'/', "");
+
+            var pairList = (prefix == "Main Menu" || prefix == "Window")
+                        ? CommonCommandPairs : CommandPairs;
+            pairList = prefix == "Window" ? CommonCommandPairs : pairList;
+            pairList.Add(new CommandPair { Combination = c, Name = trimmedName, Prefix = prefix, Index = i});
         }
+        // sort by prefix, than index in shortcut
+        CommandPairs.Sort((x, y) => (x.Prefix == y.Prefix ? (x.Index - y.Index) : (string.Compare(x.Prefix, y.Prefix))));
     }
 
     private void OnGUI()
@@ -131,10 +134,25 @@ public class ShortcutHintWindow : EditorWindow
         var shiftPressed = Event.current.shift;
         var ctrlPressed = Event.current.control;
         var altPressed = Event.current.alt;
+        
+        //if(focusedWindow != null)
+        //    EditorGUILayout.LabelField(focusedWindow.ToString());
 
+        List<CommandPair> commands;
+        if (showCommonShortcuts)
+        {
+            commands = ShortcutHelper.GetActiveCommands(CommandPairs);
+            commands.AddRange(CommonCommandPairs);
+        }
+        else
+        {
+            commands = new List<CommandPair>(CommandPairs);
+            commands.AddRange(CommonCommandPairs);
+            commands = ShortcutHelper.GetActiveCommands(commands);
+        }
         var lastPrefix = "";
         scrollPos = EditorGUILayout.BeginScrollView(scrollPos);
-        foreach(var sp in ShortcutPairs)
+        foreach(var sp in commands)
         {
             if ((sp.Combination.shift ^ shiftPressed)
                 || (sp.Combination.action ^ ctrlPressed)
