@@ -44,7 +44,15 @@ public class ShortcutHintWindow : EditorWindow
             showCommonShortcuts = EditorPrefs.GetBool(KEY_COMMON_SHORTCUTS, false);
             prefsLoaded = true;
         }
+        ShortcutManager.instance.activeProfileChanged += ReloadShortcut;
+        ShortcutManager.instance.shortcutBindingChanged += ReloadShortcut;
         LoadShortcut();
+    }
+
+    public void OnDisable()
+    {
+        ShortcutManager.instance.activeProfileChanged -= ReloadShortcut;
+        ShortcutManager.instance.shortcutBindingChanged -= ReloadShortcut;
     }
 
     [MenuItem("Tools/Shortcut Hint")]
@@ -152,7 +160,9 @@ public class ShortcutHintWindow : EditorWindow
         }
         var lastPrefix = "";
         scrollPos = EditorGUILayout.BeginScrollView(scrollPos);
-        foreach(var sp in commands)
+        var modifiers = string.Format("{0}{1}{2}...", shiftPressed ? "Shift+" : "", ctrlPressed ? "Ctrl+" : "", altPressed ? "Alt+" : "");
+        EditorGUILayout.LabelField(modifiers, EditorStyles.boldLabel);
+        foreach (var sp in commands)
         {
             if ((sp.Combination.shift ^ shiftPressed)
                 || (sp.Combination.action ^ ctrlPressed)
@@ -172,5 +182,15 @@ public class ShortcutHintWindow : EditorWindow
     private void Update()
     {
         Repaint();
+    }
+
+    private void ReloadShortcut(ShortcutBindingChangedEventArgs args)
+    {
+        LoadShortcut();
+    }
+
+    private void ReloadShortcut(ActiveProfileChangedEventArgs args)
+    {
+        LoadShortcut();
     }
 }
